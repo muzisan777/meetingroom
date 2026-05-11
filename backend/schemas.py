@@ -32,6 +32,7 @@ class UserCreate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     org_id: Optional[int] = None
+    role_id: Optional[int] = None
     is_admin: Optional[bool] = False
     is_active: Optional[bool] = True
 
@@ -43,6 +44,9 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     password: Optional[str] = None
     org_id: Optional[int] = None
+    role_id: Optional[int] = None
+    is_admin: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class UserResponse(BaseModel):
@@ -56,6 +60,8 @@ class UserResponse(BaseModel):
     org_name: Optional[str] = None
     is_active: bool
     is_admin: bool
+    role_name: Optional[str] = None
+    permissions: Optional[List[dict]] = None
     
     class Config:
         from_attributes = True
@@ -233,3 +239,52 @@ class BorrowingResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# ==================== 角色权限相关 ====================
+
+class RoleCreate(BaseModel):
+    """角色创建请求"""
+    name: str
+    description: Optional[str] = None
+
+
+class RoleUpdate(BaseModel):
+    """角色更新请求"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class RoleResponse(BaseModel):
+    """角色响应"""
+    id: int
+    name: str
+    description: Optional[str]
+    is_active: bool
+    user_count: int = 0
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class PermissionCreate(BaseModel):
+    """权限创建请求"""
+    module: str
+    action: str
+
+
+class PermissionResponse(BaseModel):
+    """权限响应"""
+    id: int
+    role_id: int
+    module: str
+    action: str
+    
+    class Config:
+        from_attributes = True
+
+
+class RolePermissionsUpdate(BaseModel):
+    """角色权限批量更新请求"""
+    permissions: List[PermissionCreate]

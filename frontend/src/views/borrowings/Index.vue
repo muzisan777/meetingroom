@@ -57,7 +57,7 @@
               size="small" 
               type="success" 
               @click="handleReturn(row)" 
-              v-if="row.status === 'borrowed' && (userStore.isAdmin || row.user_id === userStore.userInfo?.id)"
+              v-if="row.status === 'borrowed' && (userStore.hasPermission('borrowings', 'update') || row.user_id === userStore.userInfo?.id)"
             >
               归还
             </el-button>

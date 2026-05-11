@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>用户管理</span>
-          <el-button type="primary" @click="showCreateDialog">
+          <el-button type="primary" @click="showCreateDialog" v-if="userStore.hasPermission('users', 'create')">
             <el-icon><Plus /></el-icon> 新增用户
           </el-button>
         </div>
@@ -20,11 +20,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="phone" label="手机" />
-        <el-table-column label="角色" width="100">
+        <el-table-column label="角色" width="130">
           <template #default="{ row }">
-            <el-tag :type="row.is_admin ? 'danger' : ''">
-              {{ row.is_admin ? '管理员' : '普通用户' }}
-            </el-tag>
+            <el-tag v-if="row.is_admin" type="danger">管理员</el-tag>
+            <el-tag v-else-if="row.role_name" type="primary">{{ row.role_name }}</el-tag>
+            <span v-else class="no-role">-</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
@@ -36,8 +36,8 @@
         </el-table-column>
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
-            <el-button size="small" @click="showEditDialog(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)" :disabled="row.username === 'admin'">删除</el-button>
+            <el-button size="small" @click="showEditDialog(row)" v-if="userStore.hasPermission('users', 'update')">编辑</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)" v-if="userStore.hasPermission('users', 'delete')" :disabled="row.username === 'admin'">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -55,6 +55,11 @@
         <el-form-item label="部门" prop="org_id">
           <el-select v-model="form.org_id" placeholder="选择部门（可选）" clearable style="width: 100%">
             <el-option v-for="org in organizations" :key="org.id" :label="org.name" :value="org.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="角色" prop="role_id">
+          <el-select v-model="form.role_id" placeholder="选择角色（可选）" clearable style="width: 100%">
+            <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
@@ -83,11 +88,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getUsers, createUser, updateUser, deleteUser } from '@/api'
+import { useUserStore } from '@/stores/user'
+import { getUsers, createUser, updateUser, deleteUser, getRoles } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+const userStore = useUserStore()
 const users = ref([])
 const organizations = ref([])
+const roles = ref([])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const loading = ref(false)
@@ -101,6 +109,7 @@ const form = ref({
   full_name: '',
   phone: '',
   org_id: null,
+  role_id: null,
   is_admin: false,
   is_active: true
 })
@@ -111,7 +120,7 @@ const rules = {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchUsers(), fetchOrganizations()])
+  await Promise.all([fetchUsers(), fetchOrganizations(), fetchRoles()])
 })
 
 const fetchUsers = async () => {
@@ -138,9 +147,17 @@ const fetchOrganizations = async () => {
   }
 }
 
+const fetchRoles = async () => {
+  try {
+    roles.value = await getRoles()
+  } catch (error) {
+    console.error('Fetch roles error:', error)
+  }
+}
+
 const showCreateDialog = () => {
   isEdit.value = false
-  form.value = { id: null, username: '', password: '', email: '', full_name: '', phone: '', org_id: null, is_admin: false, is_active: true }
+  form.value = { id: null, username: '', password: '', email: '', full_name: '', phone: '', org_id: null, role_id: null, is_admin: false, is_active: true }
   dialogVisible.value = true
 }
 

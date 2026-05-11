@@ -12,7 +12,7 @@ from typing import Optional, List
 
 # 导入配置模块
 from database import get_db, engine, SessionLocal
-from models import User, Organization, MeetingRoom, Booking, Item, Borrowing
+from models import User, Organization, MeetingRoom, Booking, Item, Borrowing, Role, RolePermission
 from schemas import (
     Token, UserCreate, UserUpdate, UserResponse,
     OrganizationCreate, OrganizationUpdate, OrganizationResponse,
@@ -20,12 +20,15 @@ from schemas import (
     BookingCreate, BookingUpdate, BookingResponse,
     ItemCreate, ItemUpdate, ItemResponse,
     BorrowingCreate, BorrowingUpdate, BorrowingResponse,
-    PasswordChange
+    PasswordChange,
+    RoleCreate, RoleUpdate, RoleResponse,
+    PermissionCreate, PermissionResponse, RolePermissionsUpdate
 )
 from auth import (
     verify_password, get_password_hash, create_access_token,
     get_current_user, get_current_admin_user
 )
+from permissions import require_permission
 
 # 导入日志系统
 from logger import log_user_action, log_error
@@ -97,10 +100,51 @@ def startup_event():
     from models import Base
     Base.metadata.create_all(bind=engine)
     
-    # 创建默认管理员账户
+    # 创建默认管理员账户和角色
     db = SessionLocal()
     try:
         admin = db.query(User).filter(User.username == "admin").first()
+        
+        # 创建默认角色
+        admin_role = db.query(Role).filter(Role.name == "超级管理员").first()
+        if not admin_role:
+            admin_role = Role(name="超级管理员", description="拥有系统全部权限")
+            db.add(admin_role)
+            db.flush()
+            
+            # 为超级管理员角色分配所有权限
+            all_modules = {
+                "users": ["create", "read", "update", "delete"],
+                "organizations": ["create", "read", "update", "delete"],
+                "rooms": ["create", "read", "update", "delete"],
+                "bookings": ["create", "read", "update", "delete"],
+                "items": ["create", "read", "update", "delete"],
+                "borrowings": ["create", "read", "update", "delete"],
+                "logs": ["read"],
+                "roles": ["read"],
+            }
+            for module, actions in all_modules.items():
+                for action in actions:
+                    db.add(RolePermission(role_id=admin_role.id, module=module, action=action))
+        
+        user_role = db.query(Role).filter(Role.name == "普通用户").first()
+        if not user_role:
+            user_role = Role(name="普通用户", description="拥有基础的查看和预约借用权限")
+            db.add(user_role)
+            db.flush()
+            
+            # 普通用户可以查看会议室和物品，操作自己的预约和借用
+            default_perms = [
+                ("rooms", "read"),
+                ("items", "read"),
+                ("bookings", "read"),
+                ("bookings", "create"),
+                ("borrowings", "read"),
+                ("borrowings", "create"),
+            ]
+            for module, action in default_perms:
+                db.add(RolePermission(role_id=user_role.id, module=module, action=action))
+        
         if not admin:
             admin = User(
                 username="admin",
@@ -108,11 +152,18 @@ def startup_event():
                 full_name="System Admin",
                 hashed_password=get_password_hash("admin@123"),
                 is_admin=True,
+                role_id=admin_role.id,
                 is_active=True
             )
             db.add(admin)
             db.commit()
             print("Default admin account created: admin / admin@123")
+        else:
+            # 给现有 admin 用户关联角色
+            if not admin.role_id:
+                admin.role_id = admin_role.id
+                db.commit()
+            print("Admin role assigned to existing admin user")
     finally:
         db.close()
 
@@ -169,6 +220,16 @@ async def login(
         details=f"成功登录系统"
     )
     
+    # 获取用户权限列表
+    permissions = []
+    role_name = None
+    if user.role_id:
+        role = db.query(Role).filter(Role.id == user.role_id).first()
+        if role:
+            role_name = role.name
+            perms = db.query(RolePermission).filter(RolePermission.role_id == user.role_id).all()
+            permissions = [{"module": p.module, "action": p.action} for p in perms]
+    
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -177,7 +238,10 @@ async def login(
             "username": user.username,
             "email": user.email,
             "full_name": user.full_name,
-            "is_admin": user.is_admin
+            "is_admin": user.is_admin,
+            "role_id": user.role_id,
+            "role_name": role_name,
+            "permissions": permissions
         }
     }
 
@@ -238,10 +302,33 @@ async def register(
 
 @app.get("/api/auth/me", response_model=UserResponse)
 async def get_me(
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """获取当前用户信息"""
-    return current_user
+    permissions = []
+    role_name = None
+    if current_user.role_id:
+        role = db.query(Role).filter(Role.id == current_user.role_id).first()
+        if role:
+            role_name = role.name
+            perms = db.query(RolePermission).filter(RolePermission.role_id == current_user.role_id).all()
+            permissions = [{"module": p.module, "action": p.action} for p in perms]
+    
+    user_dict = {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "phone": current_user.phone,
+        "org_id": current_user.org_id,
+        "is_active": current_user.is_active,
+        "is_admin": current_user.is_admin,
+        "role_id": current_user.role_id,
+        "role_name": role_name,
+        "permissions": permissions
+    }
+    return user_dict
 
 
 @app.put("/api/auth/password")
@@ -278,16 +365,16 @@ async def change_password(
     return {"message": "密码修改成功"}
 
 
-# ==================== 组织管理接口 (管理员) ====================
+# ==================== 组织管理接口 ====================
 
 @app.get("/api/organizations", response_model=List[OrganizationResponse])
 async def list_organizations(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("organizations", "read"))
 ):
-    """获取组织列表（仅管理员）"""
+    """获取组织列表"""
     orgs = db.query(Organization).offset(skip).limit(limit).all()
     
     # 统计每个组织的用户数
@@ -318,9 +405,9 @@ async def list_organizations(
 async def get_organization(
     org_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("organizations", "read"))
 ):
-    """获取组织详情（仅管理员）"""
+    """获取组织详情"""
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         # 记录错误操作
@@ -357,9 +444,9 @@ async def get_organization(
 async def create_organization(
     org_data: OrganizationCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("organizations", "create"))
 ):
-    """创建组织（仅管理员）"""
+    """创建组织"""
     try:
         existing_org = db.query(Organization).filter(Organization.name == org_data.name).first()
         if existing_org:
@@ -406,9 +493,9 @@ async def update_organization(
     org_id: int,
     org_data: OrganizationUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("organizations", "update"))
 ):
-    """更新组织（仅管理员）"""
+    """更新组织"""
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         # 记录错误操作
@@ -461,9 +548,9 @@ async def update_organization(
 async def delete_organization(
     org_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("organizations", "delete"))
 ):
-    """删除组织（仅管理员）"""
+    """删除组织"""
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         # 记录错误操作
@@ -505,16 +592,16 @@ async def delete_organization(
     return {"message": "组织已删除"}
 
 
-# ==================== 用户管理接口 (管理员) ====================
+# ==================== 用户管理接口 ====================
 
 @app.get("/api/users", response_model=List[UserResponse])
 async def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("users", "read"))
 ):
-    """获取用户列表（仅管理员）"""
+    """获取用户列表"""
     users = db.query(User).offset(skip).limit(limit).all()
     
     # 关联组织名称
@@ -526,6 +613,12 @@ async def list_users(
             if org:
                 org_name = org.name
         
+        role_name = None
+        if user.role_id:
+            role = db.query(Role).filter(Role.id == user.role_id).first()
+            if role:
+                role_name = role.name
+        
         user_dict = {
             "id": user.id,
             "username": user.username,
@@ -534,6 +627,8 @@ async def list_users(
             "phone": user.phone,
             "org_id": user.org_id,
             "org_name": org_name,
+            "role_id": user.role_id,
+            "role_name": role_name,
             "is_active": user.is_active,
             "is_admin": user.is_admin
         }
@@ -546,9 +641,9 @@ async def list_users(
 async def create_user(
     user_data: UserCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("users", "create"))
 ):
-    """创建用户（仅管理员）"""
+    """创建用户"""
     try:
         # 检查用户名是否已存在
         existing_user = db.query(User).filter(User.username == user_data.username).first()
@@ -568,6 +663,7 @@ async def create_user(
             full_name=user_data.full_name,
             phone=user_data.phone,
             org_id=user_data.org_id,
+            role_id=user_data.role_id,
             hashed_password=get_password_hash(user_data.password),
             is_admin=user_data.is_admin if hasattr(user_data, 'is_admin') else False,
             is_active=user_data.is_active if hasattr(user_data, 'is_active') else True
@@ -582,6 +678,13 @@ async def create_user(
             org = db.query(Organization).filter(Organization.id == user.org_id).first()
             if org:
                 org_name = org.name
+        
+        # 获取角色名称
+        role_name = None
+        if user.role_id:
+            role = db.query(Role).filter(Role.id == user.role_id).first()
+            if role:
+                role_name = role.name
         
         # 记录管理员操作
         log_user_action(
@@ -600,6 +703,7 @@ async def create_user(
             "phone": user.phone,
             "org_id": user.org_id,
             "org_name": org_name,
+            "role_name": role_name,
             "is_active": user.is_active,
             "is_admin": user.is_admin
         }
@@ -620,9 +724,9 @@ async def create_user(
 async def get_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("users", "read"))
 ):
-    """获取用户详情（仅管理员）"""
+    """获取用户详情"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         # 记录错误操作
@@ -644,9 +748,9 @@ async def update_user(
     user_id: int,
     user_data: UserUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("users", "update"))
 ):
-    """更新用户信息（仅管理员）"""
+    """更新用户信息"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         # 记录错误操作
@@ -671,6 +775,12 @@ async def update_user(
         user.hashed_password = get_password_hash(user_data.password)
     if user_data.org_id is not None:
         user.org_id = user_data.org_id
+    if user_data.role_id is not None:
+        user.role_id = user_data.role_id
+    if user_data.is_admin is not None:
+        user.is_admin = user_data.is_admin
+    if user_data.is_active is not None:
+        user.is_active = user_data.is_active
     
     db.commit()
     db.refresh(user)
@@ -681,6 +791,13 @@ async def update_user(
         org = db.query(Organization).filter(Organization.id == user.org_id).first()
         if org:
             org_name = org.name
+    
+    # 获取角色名称
+    role_name = None
+    if user.role_id:
+        role = db.query(Role).filter(Role.id == user.role_id).first()
+        if role:
+            role_name = role.name
     
     # 记录管理员操作
     log_user_action(
@@ -699,6 +816,7 @@ async def update_user(
         "phone": user.phone,
         "org_id": user.org_id,
         "org_name": org_name,
+        "role_name": role_name,
         "is_active": user.is_active,
         "is_admin": user.is_admin
     }
@@ -708,9 +826,9 @@ async def update_user(
 async def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("users", "delete"))
 ):
-    """删除用户（仅管理员）"""
+    """删除用户"""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         # 记录错误操作
@@ -768,9 +886,9 @@ async def list_all_rooms(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("rooms", "update"))
 ):
-    """获取所有会议室（包括禁用的，仅管理员）"""
+    """获取所有会议室（包括禁用的）"""
     rooms = db.query(MeetingRoom).offset(skip).limit(limit).all()
     
     return rooms
@@ -780,9 +898,9 @@ async def list_all_rooms(
 async def create_room(
     room_data: MeetingRoomCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("rooms", "create"))
 ):
-    """创建会议室（仅管理员）"""
+    """创建会议室"""
     try:
         existing_room = db.query(MeetingRoom).filter(MeetingRoom.name == room_data.name).first()
         if existing_room:
@@ -844,9 +962,9 @@ async def update_room(
     room_id: int,
     room_data: MeetingRoomUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("rooms", "update"))
 ):
-    """更新会议室（仅管理员）"""
+    """更新会议室"""
     room = db.query(MeetingRoom).filter(MeetingRoom.id == room_id).first()
     if not room:
         # 记录错误操作
@@ -883,9 +1001,9 @@ async def update_room(
 async def delete_room(
     room_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("rooms", "delete"))
 ):
-    """删除会议室（仅管理员）"""
+    """删除会议室"""
     room = db.query(MeetingRoom).filter(MeetingRoom.id == room_id).first()
     if not room:
         # 记录错误操作
@@ -1236,9 +1354,9 @@ async def list_all_items(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("items", "update"))
 ):
-    """获取所有物品（包括禁用的，仅管理员）"""
+    """获取所有物品（包括禁用的）"""
     items = db.query(Item).offset(skip).limit(limit).all()
     
     return items
@@ -1248,9 +1366,9 @@ async def list_all_items(
 async def create_item(
     item_data: ItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("items", "create"))
 ):
-    """创建物品（仅管理员）"""
+    """创建物品"""
     try:
         item = Item(**item_data.dict(), available_quantity=item_data.quantity)
         db.add(item)
@@ -1308,9 +1426,9 @@ async def update_item(
     item_id: int,
     item_data: ItemUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("items", "update"))
 ):
-    """更新物品（仅管理员）"""
+    """更新物品"""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         # 记录错误操作
@@ -1347,9 +1465,9 @@ async def update_item(
 async def delete_item(
     item_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("items", "delete"))
 ):
-    """删除物品（仅管理员）"""
+    """删除物品"""
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         # 记录错误操作
@@ -1600,13 +1718,13 @@ from typing import Optional
 
 @app.get("/api/logs")
 async def get_logs(
-    log_type: str = "action",  # action, error
+    log_type: str = "action",
     page: int = 0,
     page_size: int = 50,
     keyword: Optional[str] = None,
-    current_user: User = Depends(get_current_admin_user)
+    current_user: User = Depends(require_permission("logs", "read"))
 ):
-    """获取日志（仅管理员）"""
+    """获取日志"""
     log_dir = "logs"
     if not os.path.exists(log_dir):
         return {"logs": [], "total": 0, "page": page, "page_size": page_size}
@@ -1659,8 +1777,8 @@ async def get_logs(
 
 
 @app.get("/api/logs/types")
-async def get_log_types(current_user: User = Depends(get_current_admin_user)):
-    """获取日志类型列表（仅管理员）"""
+async def get_log_types(current_user: User = Depends(require_permission("logs", "read"))):
+    """获取日志类型列表"""
     log_dir = "logs"
     if not os.path.exists(log_dir):
         return {"types": []}
@@ -1784,6 +1902,211 @@ async def public_items(db: Session = Depends(get_db)):
         }
         for i in items
     ]
+
+
+# ==================== 角色管理接口 ====================
+
+@app.get("/api/roles", response_model=List[RoleResponse])
+async def list_roles(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("roles", "read"))
+):
+    """获取角色列表"""
+    roles = db.query(Role).offset(skip).limit(limit).all()
+    
+    result = []
+    for role in roles:
+        user_count = db.query(User).filter(User.role_id == role.id).count()
+        result.append({
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "is_active": role.is_active,
+            "user_count": user_count,
+            "created_at": role.created_at
+        })
+    
+    return result
+
+
+@app.get("/api/roles/{role_id}", response_model=RoleResponse)
+async def get_role(
+    role_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("roles", "read"))
+):
+    """获取角色详情"""
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    
+    user_count = db.query(User).filter(User.role_id == role.id).count()
+    return {
+        "id": role.id,
+        "name": role.name,
+        "description": role.description,
+        "is_active": role.is_active,
+        "user_count": user_count,
+        "created_at": role.created_at
+    }
+
+
+@app.post("/api/roles", response_model=RoleResponse)
+async def create_role(
+    role_data: RoleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """创建角色（仅管理员）"""
+    existing = db.query(Role).filter(Role.name == role_data.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="角色名称已存在")
+    
+    role = Role(name=role_data.name, description=role_data.description)
+    db.add(role)
+    db.commit()
+    db.refresh(role)
+    
+    log_user_action(
+        user_id=current_user.id,
+        username=current_user.username,
+        full_name=current_user.full_name or current_user.username,
+        action="创建角色",
+        details=f"角色ID: {role.id}, 角色名称: {role.name}"
+    )
+    
+    return {
+        "id": role.id,
+        "name": role.name,
+        "description": role.description,
+        "is_active": role.is_active,
+        "user_count": 0,
+        "created_at": role.created_at
+    }
+
+
+@app.put("/api/roles/{role_id}", response_model=RoleResponse)
+async def update_role(
+    role_id: int,
+    role_data: RoleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """更新角色信息（仅管理员）"""
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    
+    if role_data.name is not None:
+        existing = db.query(Role).filter(Role.name == role_data.name, Role.id != role_id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="角色名称已存在")
+        role.name = role_data.name
+    if role_data.description is not None:
+        role.description = role_data.description
+    
+    db.commit()
+    db.refresh(role)
+    
+    user_count = db.query(User).filter(User.role_id == role.id).count()
+    
+    log_user_action(
+        user_id=current_user.id,
+        username=current_user.username,
+        full_name=current_user.full_name or current_user.username,
+        action="更新角色",
+        details=f"角色ID: {role.id}, 角色名称: {role.name}"
+    )
+    
+    return {
+        "id": role.id,
+        "name": role.name,
+        "description": role.description,
+        "is_active": role.is_active,
+        "user_count": user_count,
+        "created_at": role.created_at
+    }
+
+
+@app.delete("/api/roles/{role_id}")
+async def delete_role(
+    role_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """删除角色（仅管理员）"""
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    
+    if role.name == "超级管理员":
+        raise HTTPException(status_code=400, detail="不能删除超级管理员角色")
+    
+    user_count = db.query(User).filter(User.role_id == role.id).count()
+    if user_count > 0:
+        raise HTTPException(status_code=400, detail=f"该角色下还有 {user_count} 个用户，无法删除")
+    
+    db.delete(role)
+    db.commit()
+    
+    log_user_action(
+        user_id=current_user.id,
+        username=current_user.username,
+        full_name=current_user.full_name or current_user.username,
+        action="删除角色",
+        details=f"角色ID: {role_id}, 角色名称: {role.name}"
+    )
+    
+    return {"message": "角色已删除"}
+
+
+@app.get("/api/roles/{role_id}/permissions", response_model=List[PermissionResponse])
+async def get_role_permissions(
+    role_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """获取角色的权限列表（仅管理员）"""
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    
+    permissions = db.query(RolePermission).filter(RolePermission.role_id == role_id).all()
+    return permissions
+
+
+@app.put("/api/roles/{role_id}/permissions")
+async def update_role_permissions(
+    role_id: int,
+    perm_data: RolePermissionsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user)
+):
+    """批量更新角色权限（仅管理员）"""
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    
+    # 删除旧权限
+    db.query(RolePermission).filter(RolePermission.role_id == role_id).delete()
+    
+    # 添加新权限
+    for p in perm_data.permissions:
+        db.add(RolePermission(role_id=role_id, module=p.module, action=p.action))
+    
+    db.commit()
+    
+    log_user_action(
+        user_id=current_user.id,
+        username=current_user.username,
+        full_name=current_user.full_name or current_user.username,
+        action="更新角色权限",
+        details=f"角色ID: {role_id}, 角色名称: {role.name}, 权限数: {len(perm_data.permissions)}"
+    )
+    
+    return {"message": "权限已更新"}
 
 
 # ==================== 健康检查 ====================

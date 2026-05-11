@@ -23,13 +23,13 @@ const routes = [
     path: '/rooms',
     name: 'Rooms',
     component: () => import('@/views/rooms/Index.vue'),
-    meta: { requiresAuth: true, title: '会议室管理' }
+    meta: { requiresAuth: true, module: 'rooms', title: '会议室管理' }
   },
   {
     path: '/bookings',
     name: 'Bookings',
     component: () => import('@/views/bookings/Index.vue'),
-    meta: { requiresAuth: true, title: '预约管理' }
+    meta: { requiresAuth: true, module: 'bookings', title: '预约管理' }
   },
   {
     path: '/bookings/today',
@@ -41,31 +41,37 @@ const routes = [
     path: '/items',
     name: 'Items',
     component: () => import('@/views/items/Index.vue'),
-    meta: { requiresAuth: true, title: '物品管理' }
+    meta: { requiresAuth: true, module: 'items', title: '物品管理' }
   },
   {
     path: '/borrowings',
     name: 'Borrowings',
     component: () => import('@/views/borrowings/Index.vue'),
-    meta: { requiresAuth: true, title: '借用管理' }
+    meta: { requiresAuth: true, module: 'borrowings', title: '借用管理' }
   },
   {
     path: '/organizations',
     name: 'Organizations',
     component: () => import('@/views/organizations/Index.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true, title: '组织管理' }
+    meta: { requiresAuth: true, module: 'organizations', title: '组织管理' }
   },
   {
     path: '/users',
     name: 'Users',
     component: () => import('@/views/users/Index.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true, title: '用户管理' }
+    meta: { requiresAuth: true, module: 'users', title: '用户管理' }
+  },
+  {
+    path: '/roles',
+    name: 'Roles',
+    component: () => import('@/views/admin/Roles.vue'),
+    meta: { requiresAuth: true, module: 'roles', title: '角色管理' }
   },
   {
     path: '/logs',
     name: 'Logs',
     component: () => import('@/views/admin/Logs.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true, title: '系统日志' }
+    meta: { requiresAuth: true, module: 'logs', title: '系统日志' }
   },
   {
     path: '/profile',
@@ -85,11 +91,16 @@ router.beforeEach((to, from, next) => {
 
   if (to.meta.requiresAuth && !userStore.isLoggedIn) {
     next('/login')
-  } else if (to.meta.requiresAdmin && !userStore.isAdmin) {
-    next('/dashboard')
-  } else {
-    next()
+    return
   }
+
+  // 模块权限检查
+  if (to.meta.module && !userStore.hasPermission(to.meta.module, 'read')) {
+    next('/dashboard')
+    return
+  }
+
+  next()
 })
 
 export default router

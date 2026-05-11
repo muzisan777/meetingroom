@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>组织管理</span>
-          <el-button type="primary" @click="showCreateDialog">
+          <el-button type="primary" @click="showCreateDialog" v-if="userStore.hasPermission('organizations', 'create')">
             <el-icon><Plus /></el-icon> 新增组织
           </el-button>
         </div>
@@ -28,8 +28,8 @@
         </el-table-column>
         <el-table-column label="操作" width="200">
           <template #default="{ row }">
-            <el-button size="small" @click="showEditDialog(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)" :disabled="row.user_count > 0">删除</el-button>
+            <el-button size="small" @click="showEditDialog(row)" v-if="userStore.hasPermission('organizations', 'update')">编辑</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)" v-if="userStore.hasPermission('organizations', 'delete')" :disabled="row.user_count > 0">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -63,8 +63,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
+const userStore = useUserStore()
 const API_BASE = '/api'
 
 const organizations = ref([])

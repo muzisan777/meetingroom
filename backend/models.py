@@ -20,12 +20,14 @@ class User(Base):
     full_name = Column(String(100))
     phone = Column(String(20))
     org_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
     
     # 关系
     organization = relationship("Organization", back_populates="users")
+    role = relationship("Role", back_populates="users")
     bookings = relationship("Booking", back_populates="user")
     borrowings = relationship("Borrowing", back_populates="user")
 
@@ -117,3 +119,31 @@ class Borrowing(Base):
     # 关系
     user = relationship("User", back_populates="borrowings")
     item = relationship("Item", back_populates="borrowings")
+
+
+class Role(Base):
+    """角色模型"""
+    __tablename__ = "roles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), unique=True, nullable=False)
+    description = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    
+    # 关系
+    users = relationship("User", back_populates="role")
+    permissions = relationship("RolePermission", back_populates="role", cascade="all, delete-orphan")
+
+
+class RolePermission(Base):
+    """角色权限模型"""
+    __tablename__ = "role_permissions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    module = Column(String(50), nullable=False)
+    action = Column(String(20), nullable=False)
+    
+    # 关系
+    role = relationship("Role", back_populates="permissions")

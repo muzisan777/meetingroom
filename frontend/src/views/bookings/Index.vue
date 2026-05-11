@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>预约记录</span>
-          <el-button type="primary" @click="showCreateDialog">
+          <el-button type="primary" @click="showCreateDialog" v-if="userStore.hasPermission('bookings', 'create')">
             <el-icon><Plus /></el-icon> 新建预约
           </el-button>
         </div>
@@ -32,7 +32,7 @@
         <el-table-column label="操作" width="150">
           <template #default="{ row }">
             <el-button 
-              v-if="canCancelBooking(row)"
+              v-if="canCancelBooking(row) && (userStore.hasPermission('bookings', 'update') || row.user_id === userStore.userInfo?.id)"
               size="small" 
               type="danger" 
               @click="handleCancel(row)"

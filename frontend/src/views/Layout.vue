@@ -18,40 +18,47 @@
           <span>首页</span>
         </el-menu-item>
         
-        <el-menu-item index="/rooms">
+        <el-menu-item v-if="userStore.showMenuItem('rooms')" index="/rooms">
           <el-icon><OfficeBuilding /></el-icon>
-          <span>{{ userStore.isAdmin ? '会议室管理' : '会议室' }}</span>
+          <span>会议室</span>
         </el-menu-item>
         
-        <el-menu-item index="/bookings">
+        <el-menu-item v-if="userStore.showMenuItem('bookings')" index="/bookings">
           <el-icon><Calendar /></el-icon>
-          <span>{{ userStore.isAdmin ? '预约管理' : '我的预约' }}</span>
+          <span>预约管理</span>
         </el-menu-item>
         
-        <el-menu-item index="/items">
+        <el-menu-item v-if="userStore.showMenuItem('items')" index="/items">
           <el-icon><Box /></el-icon>
-          <span>{{ userStore.isAdmin ? '物品管理' : '可借物品' }}</span>
+          <span>物品管理</span>
         </el-menu-item>
         
-        <el-menu-item index="/borrowings">
+        <el-menu-item v-if="userStore.showMenuItem('borrowings')" index="/borrowings">
           <el-icon><Document /></el-icon>
-          <span>{{ userStore.isAdmin ? '借用管理' : '我的借用' }}</span>
+          <span>借用管理</span>
         </el-menu-item>
         
-        <el-menu-item v-if="userStore.isAdmin" index="/organizations">
+        <el-menu-item v-if="userStore.showMenuItem('organizations')" index="/organizations">
           <el-icon><OfficeBuilding /></el-icon>
           <span>组织管理</span>
         </el-menu-item>
         
-        <el-menu-item v-if="userStore.isAdmin" index="/users">
+        <el-menu-item v-if="userStore.showMenuItem('users')" index="/users">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+
+        <el-menu-item v-if="userStore.showMenuItem('roles')" index="/roles">
+          <el-icon><Setting /></el-icon>
+          <span>角色管理</span>
+        </el-menu-item>
         
-        <el-menu-item v-if="userStore.isAdmin" index="/logs">
+        <el-menu-item v-if="userStore.showMenuItem('logs')" index="/logs">
           <el-icon><Document /></el-icon>
           <span>系统日志</span>
         </el-menu-item>
+        
+
       </el-menu>
       
       <div class="collapse-btn" @click="toggleCollapse">
@@ -100,7 +107,7 @@ import { computed, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
-import { UserFilled, Fold } from '@element-plus/icons-vue'
+import { UserFilled, Fold, Setting } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()

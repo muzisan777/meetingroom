@@ -16,7 +16,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="8" v-if="!userStore.isAdmin">
+      <el-col :span="8" v-if="userStore.hasPermission('bookings', 'read')">
         <el-card class="stat-card" shadow="hover" @click.native="$router.push('/bookings')" style="cursor: pointer;">
           <div class="stat-content">
             <div class="stat-icon" style="background: #fff7e6; color: var(--warning-color);">
@@ -89,7 +89,7 @@
             <el-empty v-else description="暂无预约" :image-size="60" />
           </div>
           
-          <div class="room-footer" v-if="!userStore.isAdmin">
+          <div class="room-footer" v-if="userStore.hasPermission('bookings', 'create')">
             <el-button type="primary" @click="showBookingDialog(room)">
               <el-icon><Plus /></el-icon> 预约
             </el-button>
@@ -132,7 +132,7 @@
             {{ item.description }}
           </div>
           
-          <div class="item-footer" v-if="!userStore.isAdmin">
+          <div class="item-footer" v-if="userStore.hasPermission('borrowings', 'create')">
             <el-button 
               type="primary" 
               @click="showBorrowDialog(item)"

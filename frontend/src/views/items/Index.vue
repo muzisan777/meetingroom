@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>物品列表</span>
-          <el-button type="primary" @click="showCreateDialog" v-if="userStore.isAdmin">
+          <el-button type="primary" @click="showCreateDialog" v-if="userStore.hasPermission('items', 'create')">
             <el-icon><Plus /></el-icon> 新增物品
           </el-button>
         </div>
@@ -29,17 +29,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" v-if="userStore.isAdmin">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
-            <el-button size="small" @click="showEditDialog(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" v-else>
-          <template #default="{ row }">
-            <el-button size="small" type="primary" @click="showBorrowDialog(row)" :disabled="row.available_quantity <= 0">
-              借用
-            </el-button>
+            <el-button size="small" @click="showEditDialog(row)" v-if="userStore.hasPermission('items', 'update')">编辑</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)" v-if="userStore.hasPermission('items', 'delete')">删除</el-button>
+            <el-button size="small" type="primary" @click="showBorrowDialog(row)" v-if="userStore.hasPermission('borrowings', 'create')" :disabled="row.available_quantity <= 0">借用</el-button>
           </template>
         </el-table-column>
       </el-table>

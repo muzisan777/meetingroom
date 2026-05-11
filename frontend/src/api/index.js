@@ -82,3 +82,12 @@ export const returnItem = (id) => request.put(`/borrowings/${id}/return`)
 // 日志管理
 export const getLogTypes = () => request.get('/logs/types')
 export const getLogs = (params) => request.get('/logs', { params })
+
+// 角色管理
+export const getRoles = (params) => request.get('/roles', { params })
+export const getRole = (id) => request.get(`/roles/${id}`)
+export const createRole = (data) => request.post('/roles', data)
+export const updateRole = (id, data) => request.put(`/roles/${id}`, data)
+export const deleteRole = (id) => request.delete(`/roles/${id}`)
+export const getRolePermissions = (id) => request.get(`/roles/${id}/permissions`)
+export const updateRolePermissions = (id, permissions) => request.put(`/roles/${id}/permissions`, { permissions })

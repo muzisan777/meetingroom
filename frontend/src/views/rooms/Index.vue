@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>会议室列表</span>
-          <el-button type="primary" @click="showCreateDialog" v-if="userStore.isAdmin">
+          <el-button type="primary" @click="showCreateDialog" v-if="userStore.hasPermission('rooms', 'create')">
             <el-icon><Plus /></el-icon> 新增会议室
           </el-button>
         </div>
@@ -22,15 +22,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" v-if="userStore.isAdmin">
+        <el-table-column label="操作" width="200">
           <template #default="{ row }">
-            <el-button size="small" @click="showEditDialog(row)">编辑</el-button>
-            <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="150" v-else>
-          <template #default="{ row }">
-            <el-button size="small" type="primary" @click="showBookingDialog(row)">预约</el-button>
+            <el-button size="small" @click="showEditDialog(row)" v-if="userStore.hasPermission('rooms', 'update')">编辑</el-button>
+            <el-button size="small" type="danger" @click="handleDelete(row)" v-if="userStore.hasPermission('rooms', 'delete')">删除</el-button>
+            <el-button size="small" type="primary" @click="showBookingDialog(row)" v-if="userStore.hasPermission('bookings', 'create')">预约</el-button>
           </template>
         </el-table-column>
       </el-table>
