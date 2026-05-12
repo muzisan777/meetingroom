@@ -71,6 +71,15 @@
             </el-form-item>
           </el-form>
         </el-tab-pane>
+
+        <el-tab-pane label="安全配置" name="security">
+          <el-form label-width="160px" label-position="left">
+            <el-form-item label="JWT 密钥">
+              <el-input v-model="settings.jwt_secret_key" placeholder="meeting-room-secret-key-2026-change-in-production" show-password />
+              <div class="form-tip">修改后所有已登录用户需要重新登录</div>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -92,6 +101,7 @@ const loading = ref(false)
 
 const settings = reactive({
   app_title: '',
+  jwt_secret_key: '',
   enable_registration: 'true',
   items_per_page: 20,
   log_max_bytes: '10485760',
