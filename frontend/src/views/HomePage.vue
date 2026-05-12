@@ -3,8 +3,7 @@
     <header class="top-bar">
       <div class="top-bar-inner">
         <div class="logo-area">
-          <span class="logo-emoji">📋</span>
-          <span class="logo-title">会议室预约系统</span>
+          <span class="logo-title">{{ appTitle }}</span>
         </div>
         <div class="top-bar-right">
           <el-button v-if="!userStore.isLoggedIn" type="primary" round @click="showLoginDialog = true">登录</el-button>
@@ -232,7 +231,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { getPublicTodayBookings, getPublicRooms, getPublicStats, getPublicItems, createBooking, createBorrowing } from '@/api'
+import { useAppStore } from '@/stores/app'
+import { getPublicTodayBookings, getPublicRooms, getPublicStats, getPublicItems, createBooking, createBorrowing, getAppConfig } from '@/api'
 import { ElMessage } from 'element-plus'
 import { UserFilled, Lock, Plus, ArrowDown, Box } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -242,6 +242,8 @@ dayjs.locale('zh-cn')
 
 const router = useRouter()
 const userStore = useUserStore()
+const appStore = useAppStore()
+const appTitle = ref(appStore.appTitle)
 
 const todayStr = computed(() => dayjs().format('YYYY年M月D日 dddd'))
 
@@ -482,6 +484,14 @@ onMounted(async () => {
       }
     })
   } catch (e) { console.error('HomePage load failed:', e) }
+
+  try {
+    const configRes = await getAppConfig()
+    if (configRes?.app_title) {
+      appTitle.value = configRes.app_title
+      appStore.setTitle(configRes.app_title)
+    }
+  } catch (e) { /* config load optional */ }
 })
 
 // User dropdown
@@ -501,7 +511,7 @@ const handleCommand = (cmd) => {
 }
 .top-bar-inner { max-width: 1280px; margin: 0 auto; height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
 .logo-area { display: flex; align-items: center; gap: 8px; }
-.logo-emoji { font-size: 22px; }
+
 .logo-title { font-size: 16px; font-weight: 600; background: linear-gradient(135deg, #4f6ef7, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .user-badge { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 10px; border-radius: var(--radius-md); transition: background var(--transition-fast); }
 .user-badge:hover { background: var(--bg-secondary); }

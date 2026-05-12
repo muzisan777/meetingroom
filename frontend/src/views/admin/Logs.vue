@@ -35,6 +35,22 @@
               <el-icon><Refresh /></el-icon>
               刷新
             </el-button>
+
+            <template v-if="userStore.hasPermission('logs', 'delete')">
+              <el-date-picker
+                v-model="deleteDateRange"
+                type="daterange"
+                range-separator="至"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                value-format="YYYY-MM-DD"
+                style="width: 240px; margin-right: 10px;"
+              />
+              <el-button type="danger" @click="handleDeleteLogs" :disabled="!deleteDateRange">
+                <el-icon><Delete /></el-icon>
+                删除选定范围
+              </el-button>
+            </template>
           </div>
         </div>
       </template>
@@ -85,9 +101,12 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
-import { getLogTypes, getLogs } from '@/api'
-import { ElMessage } from 'element-plus'
-import { Search, Refresh } from '@element-plus/icons-vue'
+import { getLogTypes, getLogs, deleteLogs } from '@/api'
+import { useUserStore } from '@/stores/user'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh, Delete } from '@element-plus/icons-vue'
+
+const userStore = useUserStore()
 
 // 状态变量
 const logType = ref('action')
@@ -97,6 +116,33 @@ const pageSize = ref(20)
 const totalLogs = ref(0)
 const logs = ref([])
 const logTypes = ref([])
+const deleteDateRange = ref(null)
+
+// 删除选定范围的日志
+const handleDeleteLogs = async () => {
+  if (!deleteDateRange.value) return
+  const [startDate, endDate] = deleteDateRange.value
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除 ${logType.value === 'action' ? '操作日志' : '错误日志'} 中 ${startDate} 至 ${endDate} 的所有记录吗？此操作不可恢复。`,
+      '确认删除',
+      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+    )
+    const result = await deleteLogs({
+      log_type: logType.value,
+      start_date: startDate,
+      end_date: endDate
+    })
+    ElMessage.success(result.message || `已删除 ${result.deleted_lines} 行日志`)
+    deleteDateRange.value = null
+    await fetchLogs()
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('删除日志失败:', error)
+      ElMessage.error('删除日志失败')
+    }
+  }
+}
 
 // 获取日志类型
 const fetchLogTypes = async () => {

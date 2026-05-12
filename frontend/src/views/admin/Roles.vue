@@ -136,8 +136,9 @@ const MODULES = [
   { module: 'bookings', label: '预约管理', actions: ['create', 'read', 'update', 'delete'] },
   { module: 'items', label: '物品管理', actions: ['create', 'read', 'update', 'delete'] },
   { module: 'borrowings', label: '借用管理', actions: ['create', 'read', 'update', 'delete'] },
-  { module: 'logs', label: '系统日志', actions: ['read'] },
+  { module: 'logs', label: '系统日志', actions: ['read', 'delete'] },
   { module: 'roles', label: '角色管理', actions: ['read'] },
+  { module: 'settings', label: '系统设置', actions: ['read', 'update'] },
 ]
 
 const userStore = useUserStore()

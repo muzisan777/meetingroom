@@ -288,3 +288,21 @@ class PermissionResponse(BaseModel):
 class RolePermissionsUpdate(BaseModel):
     """角色权限批量更新请求"""
     permissions: List[PermissionCreate]
+
+
+# ==================== 系统设置相关 ====================
+
+class SystemSettingResponse(BaseModel):
+    """系统设置响应"""
+    key: str
+    value: str
+    description: str
+    group: str
+
+    class Config:
+        from_attributes = True
+
+
+class SystemSettingUpdate(BaseModel):
+    """系统设置更新请求"""
+    settings: dict

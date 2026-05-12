@@ -2,8 +2,7 @@
   <el-container class="layout-container">
     <el-aside width="220px" class="aside">
       <div class="logo">
-        <span>📋</span>
-        <span class="text">会议室系统</span>
+        <span class="text">{{ appStore.appTitle }}</span>
       </div>
       
       <el-menu
@@ -58,6 +57,10 @@
           <span>系统日志</span>
         </el-menu-item>
         
+        <el-menu-item v-if="userStore.showMenuItem('settings')" index="/settings">
+          <el-icon><Setting /></el-icon>
+          <span>系统设置</span>
+        </el-menu-item>
 
       </el-menu>
       
@@ -103,15 +106,21 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useAppStore } from '@/stores/app'
 import { ElMessage } from 'element-plus'
 import { UserFilled, Fold, Setting } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
+const appStore = useAppStore()
+
+onMounted(() => {
+  appStore.fetchConfig()
+})
 
 const isCollapsed = ref(false)
 const toggleCollapse = () => {
@@ -149,7 +158,6 @@ const handleCommand = (command) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
   font-size: 16px;
   font-weight: 600;
   color: #e2e8f0;

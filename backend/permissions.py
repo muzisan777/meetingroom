@@ -17,8 +17,9 @@ MODULE_ACTIONS = {
     "bookings": ["create", "read", "update", "delete"],
     "items": ["create", "read", "update", "delete"],
     "borrowings": ["create", "read", "update", "delete"],
-    "logs": ["read"],
+    "logs": ["read", "delete"],
     "roles": ["read"],
+    "settings": ["read", "update"],
 }
 
 

@@ -12,7 +12,7 @@ from typing import Optional, List
 
 # 导入配置模块
 from database import get_db, engine, SessionLocal
-from models import User, Organization, MeetingRoom, Booking, Item, Borrowing, Role, RolePermission
+from models import User, Organization, MeetingRoom, Booking, Item, Borrowing, Role, RolePermission, SystemSetting
 from schemas import (
     Token, UserCreate, UserUpdate, UserResponse,
     OrganizationCreate, OrganizationUpdate, OrganizationResponse,
@@ -22,7 +22,8 @@ from schemas import (
     BorrowingCreate, BorrowingUpdate, BorrowingResponse,
     PasswordChange,
     RoleCreate, RoleUpdate, RoleResponse,
-    PermissionCreate, PermissionResponse, RolePermissionsUpdate
+    PermissionCreate, PermissionResponse, RolePermissionsUpdate,
+    SystemSettingResponse, SystemSettingUpdate
 )
 from auth import (
     verify_password, get_password_hash, create_access_token,
@@ -31,7 +32,7 @@ from auth import (
 from permissions import require_permission
 
 # 导入日志系统
-from logger import log_user_action, log_error
+from logger import log_user_action, log_error, apply_settings, reload_loggers
 
 # ==================== FastAPI 应用 ====================
 
@@ -120,8 +121,9 @@ def startup_event():
                 "bookings": ["create", "read", "update", "delete"],
                 "items": ["create", "read", "update", "delete"],
                 "borrowings": ["create", "read", "update", "delete"],
-                "logs": ["read"],
+                "logs": ["read", "delete"],
                 "roles": ["read"],
+                "settings": ["read", "update"],
             }
             for module, actions in all_modules.items():
                 for action in actions:
@@ -164,6 +166,60 @@ def startup_event():
                 admin.role_id = admin_role.id
                 db.commit()
             print("Admin role assigned to existing admin user")
+
+        # 清理不再使用的设置项
+        db.query(SystemSetting).filter(SystemSetting.key == "system_name").delete()
+
+        # 初始化默认系统设置
+        default_settings = {
+            "app_title": "会议室系统",
+            "enable_registration": "true",
+            "items_per_page": "20",
+            "log_max_bytes": "10485760",
+            "log_backup_count": "10",
+            "log_level": "INFO",
+            "log_date_format": "%Y-%m-%d %H:%M:%S",
+            "log_retention_days": "0",
+            "enabled_log_actions": "*",
+        }
+        for key, value in default_settings.items():
+            existing = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+            if not existing:
+                desc_map = {
+                    "app_title": "前端标题",
+                    "enable_registration": "是否开放注册",
+                    "items_per_page": "列表默认每页条数",
+                    "log_max_bytes": "单日志文件最大字节数",
+                    "log_backup_count": "日志备份文件个数",
+                    "log_level": "日志级别",
+                    "log_date_format": "日志时间戳格式",
+                    "log_retention_days": "日志自动清理天数（0=不清理）",
+                    "enabled_log_actions": "需要记录的操作类型（* = 全部）",
+                }
+                group_map = {
+                    "app_title": "basic",
+                    "enable_registration": "basic",
+                    "items_per_page": "basic",
+                    "log_max_bytes": "log",
+                    "log_backup_count": "log",
+                    "log_level": "log",
+                    "log_date_format": "log",
+                    "log_retention_days": "log",
+                    "enabled_log_actions": "log",
+                }
+                db.add(SystemSetting(
+                    key=key,
+                    value=value,
+                    description=desc_map.get(key, ""),
+                    group=group_map.get(key, "basic")
+                ))
+        db.commit()
+
+        # 将系统设置应用到日志模块
+        settings_dict = {s.key: s.value for s in db.query(SystemSetting).all()}
+        from logger import apply_settings
+        apply_settings(settings_dict)
+
     finally:
         db.close()
 
@@ -216,7 +272,7 @@ async def login(
         user_id=user.id,
         username=user.username,
         full_name=user.full_name or user.username,
-        action="用户登录",
+        action="login",
         details=f"成功登录系统"
     )
     
@@ -282,7 +338,7 @@ async def register(
             user_id=user.id,
             username=user.username,
             full_name=user.full_name or user.username,
-            action="用户注册",
+            action="register",
             details=f"新用户注册成功"
         )
         
@@ -358,7 +414,7 @@ async def change_password(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="修改密码",
+        action="change_password",
         details="成功修改密码"
     )
     
@@ -462,7 +518,7 @@ async def create_organization(
             user_id=current_user.id,
             username=current_user.username,
             full_name=current_user.full_name or current_user.username,
-            action="创建组织",
+            action="create_organization",
             details=f"组织ID: {org.id}, 组织名称: {org.name}"
         )
         
@@ -529,7 +585,7 @@ async def update_organization(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新组织",
+        action="update_organization",
         details=f"组织ID: {org.id}, 组织名称: {org.name}"
     )
     
@@ -585,7 +641,7 @@ async def delete_organization(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="删除组织",
+        action="delete_organization",
         details=f"组织ID: {org_id}, 组织名称: {org.name}"
     )
     
@@ -691,7 +747,7 @@ async def create_user(
             user_id=current_user.id,
             username=current_user.username,
             full_name=current_user.full_name or current_user.username,
-            action="创建用户",
+            action="create_user",
             details=f"用户ID: {user.id}, 用户名: {user.username}, 组织: {org_name or '无'}"
         )
         
@@ -804,7 +860,7 @@ async def update_user(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新用户",
+        action="update_user",
         details=f"用户ID: {user.id}, 用户名: {original_username} -> {user.username}, 组织: {org_name or '无'}"
     )
     
@@ -861,7 +917,7 @@ async def delete_user(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="删除用户",
+        action="delete_user",
         details=f"用户ID: {user_id}, 用户名: {user.username}"
     )
     
@@ -916,7 +972,7 @@ async def create_room(
             user_id=current_user.id,
             username=current_user.username,
             full_name=current_user.full_name or current_user.username,
-            action="创建会议室",
+            action="create_room",
             details=f"会议室ID: {room.id}, 会议室名称: {room.name}, 位置: {room.location or '未知'}, 容量: {room.capacity}"
         )
         
@@ -990,7 +1046,7 @@ async def update_room(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新会议室",
+        action="update_room",
         details=f"会议室ID: {room.id}, 会议室名称: {room.name}, 更新字段: {list(update_data.keys())}"
     )
     
@@ -1025,7 +1081,7 @@ async def delete_room(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="删除会议室",
+        action="delete_room",
         details=f"会议室ID: {room_id}, 会议室名称: {room.name}"
     )
     
@@ -1181,7 +1237,7 @@ async def create_booking(
             user_id=current_user.id,
             username=current_user.username,
             full_name=current_user.full_name or current_user.username,
-            action="创建预约",
+            action="create_booking",
             details=f"预约ID: {booking.id}, 会议室: {room.name}, 时间: {booking.start_time} - {booking.end_time}, 事由: {booking.purpose}"
         )
         
@@ -1281,7 +1337,7 @@ async def update_booking(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新预约",
+        action="update_booking",
         details=f"预约ID: {booking_id}, 更新字段: {list(update_data.keys())}"
     )
     
@@ -1329,7 +1385,7 @@ async def delete_booking(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="取消预约",
+        action="cancel_booking",
         details=f"预约ID: {booking_id}, 会议室: {booking.room_id}, 时间: {booking.start_time} - {booking.end_time}"
     )
     
@@ -1380,7 +1436,7 @@ async def create_item(
             user_id=current_user.id,
             username=current_user.username,
             full_name=current_user.full_name or current_user.username,
-            action="创建物品",
+            action="create_item",
             details=f"物品ID: {item.id}, 物品名称: {item.name}, 分类: {item.category or '无'}, 数量: {item.quantity}"
         )
         
@@ -1454,7 +1510,7 @@ async def update_item(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新物品",
+        action="update_item",
         details=f"物品ID: {item.id}, 物品名称: {item.name}, 更新字段: {list(update_data.keys())}"
     )
     
@@ -1489,7 +1545,7 @@ async def delete_item(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="删除物品",
+        action="delete_item",
         details=f"物品ID: {item_id}, 物品名称: {item.name}"
     )
     
@@ -1588,7 +1644,7 @@ async def create_borrowing(
             user_id=current_user.id,
             username=current_user.username,
             full_name=current_user.full_name or current_user.username,
-            action="创建借用",
+            action="create_borrowing",
             details=f"借用ID: {borrowing.id}, 物品: {item.name}, 数量: {borrowing_data.quantity}, 归还日期: {borrowing_data.return_date}"
         )
         
@@ -1704,11 +1760,56 @@ async def return_item(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="归还物品",
+        action="return_item",
         details=f"借用ID: {borrowing_id}, 物品: {borrowing.item_id}, 数量: {borrowing.quantity}"
     )
     
     return borrowing
+
+
+# ==================== 系统设置接口 (管理员) ====================
+
+@app.get("/api/settings", response_model=List[SystemSettingResponse])
+async def get_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("settings", "read"))
+):
+    """获取所有系统设置"""
+    settings = db.query(SystemSetting).all()
+    return settings
+
+
+@app.put("/api/settings")
+async def update_settings(
+    setting_data: SystemSettingUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("settings", "update"))
+):
+    """批量更新系统设置"""
+    updated_keys = []
+    for key, value in setting_data.settings.items():
+        setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if setting:
+            setting.value = str(value)
+            setting.updated_at = datetime.now()
+            updated_keys.append(key)
+    db.commit()
+
+    # 将设置应用到日志模块
+    settings_dict = {s.key: s.value for s in db.query(SystemSetting).all()}
+    apply_settings(settings_dict)
+    reload_loggers()
+
+    # 记录操作日志
+    log_user_action(
+        user_id=current_user.id,
+        username=current_user.username,
+        full_name=current_user.full_name or current_user.username,
+        action="update_settings",
+        details=f"更新系统设置: {', '.join(updated_keys)}"
+    )
+
+    return {"message": "设置已更新", "updated_keys": updated_keys}
 
 
 # ==================== 日志管理接口 (管理员) ====================
@@ -1794,6 +1895,91 @@ async def get_log_types(current_user: User = Depends(require_permission("logs", 
             available_types.append(log_type)
     
     return {"types": available_types}
+
+
+@app.delete("/api/logs")
+async def delete_logs(
+    log_type: str = "action",
+    start_date: str = None,
+    end_date: str = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permission("logs", "delete"))
+):
+    """按时间段删除日志"""
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        raise HTTPException(status_code=404, detail="日志目录不存在")
+
+    log_file_map = {
+        "action": "action.log",
+        "error": "error.log",
+    }
+
+    if log_type not in log_file_map:
+        raise HTTPException(status_code=400, detail="无效的日志类型")
+
+    log_file = os.path.join(log_dir, log_file_map[log_type])
+    if not os.path.exists(log_file):
+        return {"message": "没有日志可删除", "deleted_lines": 0}
+
+    if not start_date or not end_date:
+        raise HTTPException(status_code=400, detail="请提供 start_date 和 end_date 参数")
+
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式错误，请使用 YYYY-MM-DD")
+
+    try:
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        kept_lines = []
+        deleted_count = 0
+
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                kept_lines.append(line)
+                continue
+            # 尝试从行首解析日期 (YYYY-MM-DD)
+            try:
+                line_date_str = line_stripped[:10]
+                line_date = datetime.strptime(line_date_str, "%Y-%m-%d")
+                if start_dt <= line_date <= end_dt:
+                    deleted_count += 1
+                    continue
+            except ValueError:
+                pass
+            kept_lines.append(line)
+
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.writelines(kept_lines)
+
+        # 记录操作日志
+        log_user_action(
+            user_id=current_user.id,
+            username=current_user.username,
+            full_name=current_user.full_name or current_user.username,
+            action="delete_logs",
+            details=f"日志类型: {log_type}, 时间范围: {start_date} ~ {end_date}, 删除行数: {deleted_count}"
+        )
+
+        return {
+            "message": f"已删除 {deleted_count} 行日志",
+            "deleted_lines": deleted_count
+        }
+    except Exception as e:
+        log_error(
+            user_id=current_user.id,
+            username=current_user.username,
+            full_name=current_user.full_name or current_user.username,
+            error_type="删除日志失败",
+            error_msg=str(e),
+            context="delete_logs"
+        )
+        raise HTTPException(status_code=500, detail="删除日志文件失败")
 
 
 # ==================== 公共接口（无需认证） ====================
@@ -1887,6 +2073,13 @@ async def public_stats(db: Session = Depends(get_db)):
     }
 
 
+@app.get("/api/public/app-config")
+async def public_app_config(db: Session = Depends(get_db)):
+    """获取前端公开配置（无认证）"""
+    setting = db.query(SystemSetting).filter(SystemSetting.key == "app_title").first()
+    return {"app_title": setting.value if setting else "会议室系统"}
+
+
 @app.get("/api/public/items")
 async def public_items(db: Session = Depends(get_db)):
     """公共接口：获取可借物品列表（无需登录）"""
@@ -1973,7 +2166,7 @@ async def create_role(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="创建角色",
+        action="create_role",
         details=f"角色ID: {role.id}, 角色名称: {role.name}"
     )
     
@@ -2016,7 +2209,7 @@ async def update_role(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新角色",
+        action="update_role",
         details=f"角色ID: {role.id}, 角色名称: {role.name}"
     )
     
@@ -2055,7 +2248,7 @@ async def delete_role(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="删除角色",
+        action="delete_role",
         details=f"角色ID: {role_id}, 角色名称: {role.name}"
     )
     
@@ -2102,7 +2295,7 @@ async def update_role_permissions(
         user_id=current_user.id,
         username=current_user.username,
         full_name=current_user.full_name or current_user.username,
-        action="更新角色权限",
+        action="update_role_permissions",
         details=f"角色ID: {role_id}, 角色名称: {role.name}, 权限数: {len(perm_data.permissions)}"
     )
     

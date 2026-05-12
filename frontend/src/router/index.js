@@ -74,6 +74,12 @@ const routes = [
     meta: { requiresAuth: true, module: 'logs', title: '系统日志' }
   },
   {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('@/views/admin/Settings.vue'),
+    meta: { requiresAuth: true, module: 'settings', title: '系统设置' }
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('@/views/Profile.vue'),

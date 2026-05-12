@@ -5,6 +5,7 @@ export const getPublicTodayBookings = () => request.get('/public/today-bookings'
 export const getPublicRooms = () => request.get('/public/rooms')
 export const getPublicStats = () => request.get('/public/stats')
 export const getPublicItems = () => request.get('/public/items')
+export const getAppConfig = () => request.get('/public/app-config')
 
 // 认证相关
 export const login = (username, password) => {
@@ -82,6 +83,11 @@ export const returnItem = (id) => request.put(`/borrowings/${id}/return`)
 // 日志管理
 export const getLogTypes = () => request.get('/logs/types')
 export const getLogs = (params) => request.get('/logs', { params })
+export const deleteLogs = (params) => request.delete('/logs', { params })
+
+// 系统设置
+export const getSettings = () => request.get('/settings')
+export const updateSettings = (data) => request.put('/settings', data)
 
 // 角色管理
 export const getRoles = (params) => request.get('/roles', { params })

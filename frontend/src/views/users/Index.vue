@@ -148,6 +148,7 @@ const fetchOrganizations = async () => {
 }
 
 const fetchRoles = async () => {
+  if (!userStore.hasPermission('roles', 'read')) return
   try {
     roles.value = await getRoles()
   } catch (error) {

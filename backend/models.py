@@ -147,3 +147,15 @@ class RolePermission(Base):
     
     # 关系
     role = relationship("Role", back_populates="permissions")
+
+
+class SystemSetting(Base):
+    """系统设置模型"""
+    __tablename__ = "system_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(String(500), nullable=False, default="")
+    description = Column(String(200), default="")
+    group = Column(String(50), default="basic")
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
