@@ -27,7 +27,7 @@ from schemas import (
 )
 from auth import (
     verify_password, get_password_hash, create_access_token,
-    get_current_user, get_current_admin_user, update_auth_settings
+    get_current_user, get_current_admin_user
 )
 from permissions import require_permission
 
@@ -169,13 +169,13 @@ def startup_event():
 
         # 清理不再使用的设置项
         db.query(SystemSetting).filter(SystemSetting.key == "system_name").delete()
+        db.query(SystemSetting).filter(SystemSetting.key == "jwt_secret_key").delete()
 
         # 初始化默认系统设置
         default_settings = {
             "app_title": "会议室系统",
             "enable_registration": "true",
             "items_per_page": "20",
-            "jwt_secret_key": "meeting-room-secret-key-2026-change-in-production",
             "log_max_bytes": "10485760",
             "log_backup_count": "10",
             "log_level": "INFO",
@@ -196,7 +196,7 @@ def startup_event():
                     "log_date_format": "日志时间戳格式",
                     "log_retention_days": "日志自动清理天数（0=不清理）",
                     "enabled_log_actions": "需要记录的操作类型（* = 全部）",
-                    "jwt_secret_key": "JWT 密钥（修改后所有用户需重新登录）",
+
                 }
                 group_map = {
                     "app_title": "basic",
@@ -208,7 +208,6 @@ def startup_event():
                     "log_date_format": "log",
                     "log_retention_days": "log",
                     "enabled_log_actions": "log",
-                    "jwt_secret_key": "security",
                 }
                 db.add(SystemSetting(
                     key=key,
@@ -218,12 +217,10 @@ def startup_event():
                 ))
         db.commit()
 
-        # 将系统设置应用到日志模块和认证模块
+        # 将系统设置应用到日志模块
         settings_dict = {s.key: s.value for s in db.query(SystemSetting).all()}
         from logger import apply_settings
         apply_settings(settings_dict)
-        if "jwt_secret_key" in settings_dict:
-            update_auth_settings(secret_key=settings_dict["jwt_secret_key"])
 
     finally:
         db.close()
@@ -1800,12 +1797,10 @@ async def update_settings(
             updated_keys.append(key)
     db.commit()
 
-    # 将设置应用到日志模块和认证模块
+    # 将设置应用到日志模块
     settings_dict = {s.key: s.value for s in db.query(SystemSetting).all()}
     apply_settings(settings_dict)
     reload_loggers()
-    if "jwt_secret_key" in settings_dict:
-        update_auth_settings(secret_key=settings_dict["jwt_secret_key"])
 
     # 记录操作日志
     log_user_action(
